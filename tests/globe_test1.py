@@ -1,12 +1,12 @@
 import pickle
 import math
 import heapq
+import plotly.graph_objects as go
 
 # ---------------------------
-# Helpers
+# Helpers (same as before)
 # ---------------------------
 def haversine(lat1, lon1, lat2, lon2):
-    """Distance in meters between two lat/lon points."""
     R = 6371000
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -16,23 +16,20 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 def los_distance(alt1, alt2):
-    """Approximate LOS distance. Treat negative or None altitudes as 0."""
     R = 6371000
     h1 = alt1 if alt1 and alt1 > 0 else 0
     h2 = alt2 if alt2 and alt2 > 0 else 0
     return math.sqrt(2*R*h1) + math.sqrt(2*R*h2)
 
-
 # ---------------------------
-# Load planes from pickle
+# Load planes
 # ---------------------------
 with open("planes_canada.pkl", "rb") as f:
     planes_data = pickle.load(f)
 
-# Filter airborne planes and convert to dict
 planes_list = []
 for plane in planes_data.get("states", []):
-    if plane[8]:  # on_ground
+    if plane[8]:
         continue
     planes_list.append({
         "icao24": plane[0],
@@ -43,18 +40,16 @@ for plane in planes_data.get("states", []):
     })
 
 # ---------------------------
-# Ottawa and Vancouver as virtual nodes
+# Virtual nodes
 # ---------------------------
-start = {"icao24": "OTTAWA", "lat": 45.4215, "lon": -75.6972, "geo_alt": 0}
-end   = {"icao24": "VANCOUVER", "lat": 49.2827, "lon": -123.1207, "geo_alt": 0}
+start = {"icao24": "OTTAWA", "callsign": "OTTAWA", "lat": 45.4215, "lon": -75.6972, "geo_alt": 0}
+end   = {"icao24": "VANCOUVER", "callsign": "VANCOUVER", "lat": 49.2827, "lon": -123.1207, "geo_alt": 0}
 nodes = [start, end] + planes_list
 
 # ---------------------------
-# Build line-of-sight graph
+# Graph construction
 # ---------------------------
 graph = {p['icao24']: [] for p in nodes}
-
-# Connect planes in LOS
 for i, p1 in enumerate(nodes):
     for j, p2 in enumerate(nodes):
         if i >= j:
@@ -62,16 +57,15 @@ for i, p1 in enumerate(nodes):
         d = haversine(p1['lat'], p1['lon'], p2['lat'], p2['lon'])
         max_los = los_distance(p1['geo_alt'], p2['geo_alt'])
         if d <= max_los:
-            # signal travel time in s + 0.005s per hop
             delay = d/300000 + 0.005
             graph[p1['icao24']].append((p2['icao24'], delay))
             graph[p2['icao24']].append((p1['icao24'], delay))
 
 # ---------------------------
-# Dijkstra for shortest path
+# Dijkstra
 # ---------------------------
 def dijkstra(graph, start, end):
-    queue = [(0, start, [])]  # total_delay, node, path
+    queue = [(0, start, [])]
     seen = set()
     while queue:
         total, node, path = heapq.heappop(queue)
@@ -85,31 +79,65 @@ def dijkstra(graph, start, end):
                 heapq.heappush(queue, (total + delay, neighbor, path + [node]))
     return None, None
 
-# ---------------------------
-# Run shortest path calculation
-# ---------------------------
 total_delay, path = dijkstra(graph, "OTTAWA", "VANCOUVER")
+print("Path:", path)
 
 # ---------------------------
-# Build ICAO → callsign mapping
+# Map ICAO24 → callsign
 # ---------------------------
-icao_to_callsign = {p['icao24']: p['callsign'].strip() if p['callsign'] else p['icao24'] for p in planes_list}
-# Add virtual nodes
+icao_to_callsign = {p['icao24']: p['callsign'].strip() if p['callsign'] else f"UNKNOWN-{p['icao24']}" for p in planes_list}
 icao_to_callsign['OTTAWA'] = 'OTTAWA'
 icao_to_callsign['VANCOUVER'] = 'VANCOUVER'
 
-# ---------------------------
-# Print path with callsigns
-# ---------------------------
-if path:
-    print(f"Shortest LOS path found in {total_delay:.3f} s with {len(path)-2} plane hops:")
-    path_callsigns = [icao_to_callsign.get(icao, icao) for icao in path]
-    print(" -> ".join(path_callsigns))
-else:
-    print("No LOS path found with current planes in the sky.")
+path_callsigns = [icao_to_callsign.get(icao, icao) for icao in path]
 
-# if path:
-#     print(f"Shortest LOS path found in {total_delay:.3f} s with {len(path)-2} plane hops:")
-#     print(" -> ".join(path))
-# else:
-#     print("No LOS path found with current planes in the sky.")
+# ---------------------------
+# Plotting on globe
+# ---------------------------
+# Extract lat/lon for path
+path_lats = [next(p['lat'] for p in nodes if p['icao24']==icao) for icao in path]
+path_lons = [next(p['lon'] for p in nodes if p['icao24']==icao) for icao in path]
+
+# Plot all planes as faint points
+all_lats = [p['lat'] for p in planes_list]
+all_lons = [p['lon'] for p in planes_list]
+
+fig = go.Figure()
+
+# All planes
+fig.add_trace(go.Scattergeo(
+    lon = all_lons,
+    lat = all_lats,
+    mode='markers',
+    marker=dict(size=3, color='lightgray'),
+    name='Planes'
+))
+
+# Path line
+fig.add_trace(go.Scattergeo(
+    lon = path_lons,
+    lat = path_lats,
+    mode='lines+markers+text',
+    marker=dict(size=6, color='red'),
+    line=dict(width=2, color='red'),
+    text=path_callsigns,
+    textposition='top center',
+    name='Path'
+))
+
+fig.update_layout(
+    title_text="Shortest LOS Path Ottawa → Vancouver via Planes",
+    geo=dict(
+        projection_type='orthographic',
+        showcountries=True,
+        showland=True,
+        landcolor='rgb(243,243,243)',
+        countrycolor='rgb(204,204,204)',
+        showocean=True,
+        oceancolor='rgb(204, 224, 255)',
+        lataxis_range=[30, 60],
+        lonaxis_range=[-140, -50]
+    )
+)
+
+fig.show()
