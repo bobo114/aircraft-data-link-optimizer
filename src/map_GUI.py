@@ -3,17 +3,16 @@ from dash import dcc, html
 from dash.dependencies import Output, Input
 import plotly.graph_objects as go
 import pickle
-from calculate_path import extrapolate_position
+from calculate_path import extrapolate_position, compute_los_path
 import time
 
 # -------------------------------
 # Globals for time + selection
 # -------------------------------
 last_update_time = time.time()
-
-selected_start = None
-selected_end = None
-selection_mode = None   # "start" or "end"
+selection_mode = None  # "start" or "end"
+selected_start_plane = None
+selected_end_plane = None
 
 # -------------------------------
 # Load planes from pickle
@@ -65,6 +64,18 @@ fig.add_trace(go.Scattermap(
     name="Selections"
 ))
 
+# Trace 2 → shortest LOS path (empty initially)
+fig.add_trace(go.Scattermap(
+    lat=[],
+    lon=[],
+    mode="lines+markers",
+    line=dict(color="orange", width=3),
+    marker=dict(size=8, color="orange"),
+    name="LOS Path"
+))
+
+
+
 fig.update_layout(
     mapbox=dict(
         style="open-street-map",
@@ -101,7 +112,7 @@ app.layout = html.Div([
     Input('map', 'clickData'),
 )
 def update_map(n, start_clicks, end_clicks, calc_clicks, clickData):
-    global last_update_time, selection_mode, selected_start, selected_end
+    global last_update_time, selection_mode, selected_start_plane, selected_end_plane
 
     ctx = dash.callback_context
     triggered = ctx.triggered[0]['prop_id'].split('.')[0]
@@ -111,46 +122,53 @@ def update_map(n, start_clicks, end_clicks, calc_clicks, clickData):
     # -----------------------
     if triggered == "start-btn":
         selection_mode = "start"
-        print("Click on the map to select START point")
+        print("Click on a plane to select START point")
 
     elif triggered == "end-btn":
         selection_mode = "end"
-        print("Click on the map to select END point")
+        print("Click on a plane to select END point")
 
     elif triggered == "calc-btn":
         print("CALCULATE pressed")
-        print("Start:", selected_start)
-        print("End:", selected_end)
-        # Placeholder for later:
-        # calculate_path(selected_start, selected_end)
+        start_plane = planes_list[selected_start_plane]["icao24"] if selected_start_plane is not None else None
+        end_plane = planes_list[selected_end_plane]["icao24"] if selected_end_plane is not None else None
+        print("Start plane:", start_plane)
+        print("End plane:", end_plane)
+        if start_plane and end_plane:
+            shortest_los_path = compute_los_path(planes_list, start_plane, end_plane, extra_delay=0.0)
+            print("Shortest LOS path:", [i["callsign"] for i in shortest_los_path])
+            if shortest_los_path:
+                print("Drawing shortest LOS path on map...")
+                lats = [plane["lat"] for plane in shortest_los_path]
+                lons = [plane["lon"] for plane in shortest_los_path]
+                fig.data[2].lat = lats
+                fig.data[2].lon = lons
         return fig
 
     # -----------------------
-    # Map click handling
+    # Map click handling (plane selection)
     # -----------------------
     elif triggered == "map" and clickData is not None:
-        lat = clickData["points"][0]["lat"]
-        lon = clickData["points"][0]["lon"]
-
+        point_idx = clickData["points"][0]["pointIndex"]  # index in planes trace
         if selection_mode == "start":
-            selected_start = (lat, lon)
-            print(f"Start selected: {selected_start}")
-
+            selected_start_plane = point_idx
+            print(f"Start selected: plane {planes_list[point_idx]['icao24']}")
         elif selection_mode == "end":
-            selected_end = (lat, lon)
-            print(f"End selected: {selected_end}")
+            selected_end_plane = point_idx
+            print(f"End selected: plane {planes_list[point_idx]['icao24']}")
 
     # -----------------------
     # Update aircraft positions
     # -----------------------
     time_now = time.time()
+    dt = time_now - last_update_time
     for plane in planes_list:
         plane["lat"], plane["lon"] = extrapolate_position(
             plane["lat"],
             plane["lon"],
             plane["velocity"],
             plane["track"],
-            time_now - last_update_time
+            dt
         )
     last_update_time = time_now
 
@@ -160,22 +178,24 @@ def update_map(n, start_clicks, end_clicks, calc_clicks, clickData):
     fig.data[0].text = [p["callsign"] or p["icao24"] for p in planes_list]
 
     # -----------------------
-    # Update start/end markers
+    # Update start/end markers (following planes)
     # -----------------------
     markers_lat = []
     markers_lon = []
     colors = []
     sizes = []
 
-    if selected_start:
-        markers_lat.append(selected_start[0])
-        markers_lon.append(selected_start[1])
+    if selected_start_plane is not None:
+        plane = planes_list[selected_start_plane]
+        markers_lat.append(plane["lat"])
+        markers_lon.append(plane["lon"])
         colors.append("green")
         sizes.append(14)
 
-    if selected_end:
-        markers_lat.append(selected_end[0])
-        markers_lon.append(selected_end[1])
+    if selected_end_plane is not None:
+        plane = planes_list[selected_end_plane]
+        markers_lat.append(plane["lat"])
+        markers_lon.append(plane["lon"])
         colors.append("red")
         sizes.append(14)
 
@@ -185,7 +205,6 @@ def update_map(n, start_clicks, end_clicks, calc_clicks, clickData):
     fig.data[1].marker.color = colors
 
     return fig
-
 
 # -------------------------------
 # Run app
