@@ -15,24 +15,47 @@ uavs = {
 }
 
 # -----------------------
-# Create Folium map in memory
+# Create Folium map
 # -----------------------
 m = folium.Map(location=[56, -96], zoom_start=4, tiles="OpenStreetMap")
 
-# FIX 1: This script finds the secret Folium map name and makes it accessible as 'window.map'
-map_finder_js = """
-<script>
-    window.onload = function() {
-        for (let key in window) {
-            if (key.startsWith('map_') && window[key] instanceof L.Map) {
-                window.map = window[key];
-                break;
-            }
-        }
-    };
-</script>
-"""
-m.get_root().html.add_child(folium.Element(map_finder_js))
+# Add UAV markers with smaller custom icon
+for uav, (lat, lon) in uavs.items():
+    icon = folium.CustomIcon(
+        icon_image='plane_icon.png',  # your PNG
+        icon_size=(20, 20),           # smaller size
+        icon_anchor=(10, 10)          # center
+    )
+
+    # Add marker to map
+    marker = folium.Marker(
+        location=[lat, lon],
+        tooltip=uav,
+        icon=icon
+    )
+    marker.add_to(m)
+
+    # CRITICAL: Register the marker in a global JS object so Python can find it
+    marker_id = uav.replace(" ", "_")
+    marker_script = f"""
+    <script>
+        window.uav_markers = window.uav_markers || {{}};
+        // Wait for the map to exist, then capture the marker
+        window.addEventListener('DOMContentLoaded', function() {{
+            // Folium markers are added to the map object automatically
+            // We find the last marker added to the map and store it
+            var map_el = document.querySelector('.folium-map');
+            var map_id = map_el.id;
+            var map_obj = window[map_id];
+            
+            // We find the marker by its coordinates or just assign it
+            // A cleaner way is to use folium's own element ID:
+            window.uav_markers['{marker_id}'] = {marker.get_name()};
+        }});
+    </script>
+    """
+    m.get_root().html.add_child(folium.Element(marker_script))
+
 map_html = m.get_root().render()
 
 # -----------------------
@@ -47,42 +70,32 @@ window.setCentralWidget(view)
 window.resize(900, 600)
 window.show()
 
-# Load map HTML
+# Load map
 view.setHtml(map_html)
 
 # -----------------------
-# Add UAV markers dynamically
+# Update UAV positions every second (small random drift)
 # -----------------------
-def add_markers():
-    for uav, (lat, lon) in uavs.items():
-        # FIX 2: Sanitize the name (UAV 1 -> UAV_1) for JS variable safety
-        js_id = uav.replace(" ", "_")
-        js = f"""
-        if (window.map) {{
-            var marker = L.marker([{lat}, {lon}]).addTo(window.map).bindTooltip("{uav}");
-            window.{js_id} = marker;
-        }} else {{
-            console.error("Map not ready yet!");
-        }}
-        """
-        view.page().runJavaScript(js)
 
-# FIX 3: Don't use a random 1s timer. Wait for the 'loadFinished' signal.
-view.loadFinished.connect(lambda: QTimer.singleShot(500, add_markers))
-
-# -----------------------
-# Update UAV positions every second
-# -----------------------
 def update_positions():
-    for uav in uavs:
-        uavs[uav][0] += uniform(-0.05, 0.05)
-        uavs[uav][1] += uniform(-0.05, 0.05)
-        js_id = uav.replace(" ", "_")
+    print("update")
+    for i, uav_id in enumerate(uavs.keys()):
+        lat = uniform(42.0, 60.0)
+        lon = uniform(-130.0, -60.0)
+        
+        # Use setLatLng to move the existing marker instead of creating a new one
         js = f"""
-        if(window.{js_id}) {{
-            window.{js_id}.setLatLng([{uavs[uav][0]}, {uavs[uav][1]}]);
+        if (window.uav_markers && window.uav_markers['{uav_id}']) {{
+            window.uav_markers['{uav_id}'].setLatLng([{lat}, {lon}]);
         }}
         """
         view.page().runJavaScript(js)
+
+# Wait for page load before starting updates
+view.loadFinished.connect(lambda _: QTimer.singleShot(500, lambda: QTimer.singleShot(0, update_positions)))
+
+timer = QTimer()
+timer.timeout.connect(update_positions)
+timer.start(1000)  # update every second
 
 sys.exit(app.exec())
