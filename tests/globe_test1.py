@@ -80,17 +80,17 @@ def dijkstra(graph, start, end):
     return None, None
 
 total_delay, path = dijkstra(graph, "OTTAWA", "VANCOUVER")
-print("Path:", path)
+
 
 # ---------------------------
 # Map ICAO24 → callsign
 # ---------------------------
-icao_to_callsign = {p['icao24']: p['callsign'].strip() if p['callsign'] else f"UNKNOWN-{p['icao24']}" for p in planes_list}
+icao_to_callsign = {p['icao24']: f"{p['callsign'].strip()}, {p['geo_alt']}'" if p['callsign'] else f"UNKNOWN-{p['icao24']}" for p in planes_list}
 icao_to_callsign['OTTAWA'] = 'OTTAWA'
 icao_to_callsign['VANCOUVER'] = 'VANCOUVER'
 
 path_callsigns = [icao_to_callsign.get(icao, icao) for icao in path]
-
+print("Path:", path_callsigns)
 # ---------------------------
 # Plotting on globe
 # ---------------------------
@@ -101,6 +101,7 @@ path_lons = [next(p['lon'] for p in nodes if p['icao24']==icao) for icao in path
 # Plot all planes as faint points
 all_lats = [p['lat'] for p in planes_list]
 all_lons = [p['lon'] for p in planes_list]
+all_callsigns = [f"{p['callsign']}, {p['geo_alt']}'" for p in planes_list]
 
 fig = go.Figure()
 
@@ -110,6 +111,7 @@ fig.add_trace(go.Scattergeo(
     lat = all_lats,
     mode='markers',
     marker=dict(size=3, color='lightgray'),
+    text=all_callsigns,
     name='Planes'
 ))
 
