@@ -4,14 +4,29 @@ from PyQt6.QtWidgets import QApplication, QMainWindow
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QTimer
 import folium
+import math
+import pickle
 
 # -----------------------
 # UAV positions
 # -----------------------
+with open("../tests/planes_canada.pkl", "rb") as f:
+    planes_data = pickle.load(f)
+
+planes_list = []
+for plane in planes_data.get("states", []):
+    if plane[8]:
+        continue
+    planes_list.append({
+        "icao24": plane[0],
+        "callsign": plane[1],
+        "lat": plane[6],
+        "lon": plane[5],
+        "geo_alt": plane[13] if plane[13] else 0
+    })
+
 uavs = {
-    "UAV_1": [44.0, -78.0],
-    "UAV_2": [46.0, -74.0],
-    "UAV_3": [45.0, -76.0]
+    plane["callsign"]:[plane["lat"], plane["lon"]] for plane in planes_list if  plane["callsign"] and  plane["callsign"]!=""
 }
 
 # -----------------------
@@ -82,7 +97,7 @@ def update_positions():
     for i, uav_id in enumerate(uavs.keys()):
         lat = uniform(42.0, 60.0)
         lon = uniform(-130.0, -60.0)
-        
+
         # Use setLatLng to move the existing marker instead of creating a new one
         js = f"""
         if (window.uav_markers && window.uav_markers['{uav_id}']) {{
@@ -94,8 +109,9 @@ def update_positions():
 # Wait for page load before starting updates
 view.loadFinished.connect(lambda _: QTimer.singleShot(500, lambda: QTimer.singleShot(0, update_positions)))
 
-timer = QTimer()
-timer.timeout.connect(update_positions)
-timer.start(1000)  # update every second
+# timer = QTimer()
+# timer.timeout.connect(update_positions)
+# timer.start(1000)  # update every second
+
 
 sys.exit(app.exec())
