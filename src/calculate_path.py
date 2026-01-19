@@ -1,5 +1,6 @@
 import math
 import heapq
+from collections import deque
 
 def extrapolate_position(lat, lon, velocity, track, time_delta_seconds):
     """
@@ -65,14 +66,37 @@ def dijkstra(graph, start_id, end_id):
     return None
 
 # ---------------------------
+# BFS for hop-minimizing
+# ---------------------------
+def bfs_shortest_hops(graph, start_id, end_id):
+    """
+    Return path (list of node ids) minimizing number of hops (BFS).
+    graph: adjacency list mapping id -> list of (neighbor_id, weight)
+    """
+    q = deque([[start_id]])
+    visited = {start_id}
+    while q:
+        path = q.popleft()
+        node = path[-1]
+        if node == end_id:
+            return path
+        for neighbor, _ in graph.get(node, []):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                q.append(path + [neighbor])
+    return None
+
+# ---------------------------
 # Main path function
 # ---------------------------
-def compute_los_path(planes_list, start_icao, end_icao, extra_delay=0.0):
+def compute_los_path(planes_list, start_icao, end_icao, extra_delay=0.0, metric='delay'):
     """
     planes_list: list of dicts, each with keys ['icao24','callsign','lat','lon','geo_alt']
     start_icao: ICAO24 of start plane (already in planes_list)
     end_icao: ICAO24 of end plane (already in planes_list)
-    extra_delay: float, extra constant added to each link delay (default=0.005)
+    extra_delay: float, extra constant added to each link delay
+    metric: 'delay' (default) to minimize estimated transmission delay (Dijkstra),
+            'hops' to minimize number of relays (BFS / unit weights)
 
     Returns: list of dicts representing the path from start to end
     """
@@ -85,14 +109,21 @@ def compute_los_path(planes_list, start_icao, end_icao, extra_delay=0.0):
             if i >= j:
                 continue
             d = haversine(p1['lat'], p1['lon'], p2['lat'], p2['lon'])
-            max_los = los_distance(p1['geo_alt'], p2['geo_alt'])
+            max_los = los_distance(p1.get('geo_alt', 0), p2.get('geo_alt', 0))
             if d <= max_los:
-                delay = d / 300000 + extra_delay
-                graph[p1['icao24']].append((p2['icao24'], delay))
-                graph[p2['icao24']].append((p1['icao24'], delay))
+                if metric == 'hops':
+                    weight = 1.0
+                else:
+                    weight = d / 300000 + extra_delay
+                graph[p1['icao24']].append((p2['icao24'], weight))
+                graph[p2['icao24']].append((p1['icao24'], weight))
 
     # Compute path as list of icao24 IDs
-    path_ids = dijkstra(graph, start_icao, end_icao)
+    if metric == 'hops':
+        path_ids = bfs_shortest_hops(graph, start_icao, end_icao)
+    else:
+        path_ids = dijkstra(graph, start_icao, end_icao)
+
     if path_ids is None:
         return None
 
@@ -101,5 +132,3 @@ def compute_los_path(planes_list, start_icao, end_icao, extra_delay=0.0):
     path_nodes = [id_to_node[icao] for icao in path_ids]
 
     return path_nodes
-
-
