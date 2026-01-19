@@ -1,6 +1,6 @@
 dash
 plotly
-requests age
+requests
 numpy
 pytest
 geopy
