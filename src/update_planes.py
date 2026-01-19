@@ -18,32 +18,7 @@ data = {
     "client_secret": creds["clientSecret"]
 }
 
-def get_planes(test=True,pkl_file="planes_canada.pkl"):
-    if test:
-        # Load planes from pickle (make sure it's the full API structure)
-        with open(pkl_file, "rb") as f:
-            planes_data = pickle.load(f)
-
-        planes_list = []
-        for plane in planes_data.get("states", []):
-            if plane[8]:  # skip planes on ground
-                continue
-            # Copy into dictionary
-            p = {
-                "icao24": plane[0],
-                "callsign": plane[1].strip() if plane[1] else None,
-                "lat": plane[6] + random.uniform(-1, 1),  # randomize lat
-                "lon": plane[5] + random.uniform(-1, 1),  # randomize lon
-                "geo_alt": plane[13] if plane[13] else 0,
-                "velocity": plane[9] if plane[9] else 0,
-                "track": plane[10] if plane[10] else 0
-            }
-            planes_list.append(p)
-
-        # Randomly keep between 1 and all planes
-        planes_list = random.sample(planes_list, k=random.randint(1, len(planes_list)))
-
-        return planes_list
+def get_planes():
     # Get OAuth token
     r = requests.post(TOKEN_URL, data=data)
     r.raise_for_status()

@@ -76,8 +76,8 @@ def get_planes(test=True,pkl_file="planes_canada.pkl"):
             "lat": plane[6],
             "lon": plane[5],
             "geo_alt": plane[13] if plane[13] else 0,
-            "velocity": plane[9],
-            "true_track": plane[10]
+            "velocity": plane[9] if plane[9] and plane[10] else 0,
+            "track": plane[10] if plane[10] else 0
         })
 
     # Create archives folder if it doesn't exist
