@@ -12,7 +12,7 @@ from update_planes import get_planes
 selection_mode = None  # "start" or "end"
 selected_start_plane = None
 selected_end_plane = None
-test_mode = True
+test_mode = False
 planes_list = get_planes(test=test_mode)
 
 # -------------------------------
@@ -247,5 +247,5 @@ def update_map(start_clicks, end_clicks, calc_clicks, update_clicks, clickData, 
 # -------------------------------
 # Run app
 # -------------------------------
-if __name__ == '__main__':
+def run():
     app.run(debug=True)
